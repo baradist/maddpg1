@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import keras.backend as K
 import numpy as np
 import tensorflow as tf
@@ -12,7 +14,7 @@ class ActorNetwork(object):
     Implements actor network
     """
 
-    def __init__(self, sess, state_dim, action_dim, lr, tau):
+    def __init__(self, sess, state_dim, action_dim, lr, tau, checkpoint_dir):
         self.sess = sess
         K.set_session(sess)
         K.set_learning_phase(1)
@@ -27,6 +29,8 @@ class ActorNetwork(object):
         grads = zip(self.params_grad, self.mainModel_weights)
         self.optimize = tf.train.AdamOptimizer(self.lr).apply_gradients(grads)
         self.sess.run(tf.global_variables_initializer())
+        self.checkpoint_dir = checkpoint_dir
+        Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
 
     def _build_model(self):
         input_obs = Input(shape=(self.state_dim,))
@@ -63,9 +67,17 @@ class ActorNetwork(object):
     def train(self, state, action_grad):
         self.sess.run(self.optimize, feed_dict={self.mainModel_state: state, self.action_gradient: action_grad})
 
+    def save(self):
+        self.mainModel.save(self.checkpoint_dir + '/main.h5')
+        self.targetModel.save(self.checkpoint_dir + '/target.h5')
+
+    def load(self):
+        self.mainModel.load_weights(self.checkpoint_dir + '/main.h5')
+        self.targetModel.load_weights(self.checkpoint_dir + '/target.h5')
+
 
 class CriticNetwork(object):
-    def __init__(self, sess, num_agents, state_dim, action_dim, lr, tau, gamma):
+    def __init__(self, sess, num_agents, state_dim, action_dim, lr, tau, gamma, checkpoint_dir):
         self.sess = sess
         K.set_session(sess)
         K.set_learning_phase(1)
@@ -79,6 +91,8 @@ class CriticNetwork(object):
         self.targetModel, _, _ = self._build_model()
         self.action_grads = tf.gradients(self.mainModel.output, self.actions)
         self.sess.run(tf.global_variables_initializer())
+        self.checkpoint_dir = checkpoint_dir
+        Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
 
     def _build_model(self):
         input_obs = Input(shape=(self.state_dim,))
@@ -120,3 +134,11 @@ class CriticNetwork(object):
 
     def train(self, state, actions, labels):
         self.mainModel.train_on_batch([state, actions], labels)
+
+    def save(self):
+        self.mainModel.save(self.checkpoint_dir + '/main.h5')
+        self.targetModel.save(self.checkpoint_dir + '/target.h5')
+
+    def load(self):
+        self.mainModel.load_weights(self.checkpoint_dir + '/main.h5')
+        self.targetModel.load_weights(self.checkpoint_dir + '/target.h5')

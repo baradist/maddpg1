@@ -26,6 +26,7 @@ def main(args):
         observation_dim = []
         action_dim = []
         total_action_dim = 0
+        checkpoint_dir = 'results'
 
         for i in range(n):
             total_action_dim = total_action_dim + env.action_space[i].n
@@ -37,14 +38,16 @@ def main(args):
                                        observation_dim[i],
                                        action_dim[i],
                                        float(args['actor_lr']),
-                                       float(args['tau'])))
+                                       float(args['tau']),
+                                       checkpoint_dir=checkpoint_dir + '/actor' + str(i)))
             critics.append(CriticNetwork(sess,
                                          n,
                                          observation_dim[i],
                                          total_action_dim,
                                          float(args['actor_lr']),
                                          float(args['tau']),
-                                         float(args['gamma'])))
+                                         float(args['gamma']),
+                                         checkpoint_dir=checkpoint_dir + '/critic' + str(i)))
             exploration_noise.append(OUNoise(mu=np.zeros(action_dim[i])))
 
         # if args['use_gym_monitor']:

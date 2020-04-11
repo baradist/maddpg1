@@ -16,6 +16,8 @@ def build_summaries():
 
 
 def train(sess, env, args, actors, critics, noise):
+    load_models(actors, critics)
+
     summary_ops, summary_vars = build_summaries()
     init = tf.global_variables_initializer()
     sess.run(init)
@@ -33,17 +35,7 @@ def train(sess, env, args, actors, critics, noise):
         episode_reward = np.zeros((env.n,))
 
         if ep % 100 == 0:
-            for k in range(env.n):
-                file1 = 'results/actor' + str(k) + '/main' + str(ep) + '.h5'
-                # file2 = 'results/actor'+str(k)+'/target'+str(ep)+'.h5'
-                file3 = 'results/critic' + str(k) + '/main' + str(ep) + '.h5'
-                # file4 = 'results/critic'+str(k)+'/target'+str(ep)+'.h5'
-                actor = actors[k]
-                critic = critics[k]
-                actor.mainModel.save(file1)
-                # actor.targetModel.save(file2)
-                critic.mainModel.save(file3)
-                # critic.targetModel.save(file4)
+            save_models(actors, critics)
 
         for stp in range(int(args['max_episode_len'])):
             if args['render_env']:
@@ -115,3 +107,23 @@ def train(sess, env, args, actors, critics, noise):
 
             if stp == int(args['max_episode_len']) - 1:
                 print('|Reward: {}	| Episode: {:d}'.format(episode_reward, ep))
+
+
+def save_models(actors, critics):
+    for _, actor in enumerate(actors):
+        actor.save()
+    for _, critic in enumerate(critics):
+        critic.save()
+
+
+def load_models(actors, critics):
+    try:
+        for _, actor in enumerate(actors):
+            actor.load()
+    except Exception as e:
+        print('Can not load actors\'  models. Cause:', e)
+    try:
+        for _, critic in enumerate(critics):
+            critic.load()
+    except Exception as e:
+        print('Can not load critics\'  models. Cause:', e)
