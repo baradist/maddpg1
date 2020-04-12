@@ -1,3 +1,4 @@
+import math
 from pathlib import Path
 
 import keras.backend as K
@@ -48,8 +49,11 @@ class ActorNetwork(object):
         return model, model.trainable_weights, input_obs
 
     def act(self, state, noise):
-        act = self.mainModel.predict(state) + noise
-        return act
+        act = self.mainModel.predict(state)
+        if math.isnan(act[0][0]):
+            print("Ups... Something goes wrong :(")
+            # return np.array([noise])
+        return act + noise
 
     def predict_target(self, state):
         return self.targetModel.predict(state)
