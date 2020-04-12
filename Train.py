@@ -31,82 +31,96 @@ def train(sess, env, args, actors, critics, noise):
     replayMemory = ReplayMemory(int(args['buffer_size']), int(args['random_seed']))
 
     for ep in range(int(args['max_episodes'])):
-        s = env.reset()
-        episode_reward = np.zeros((env.n,))
 
         if ep % 100 == 0:
             save_models(actors, critics)
 
-        for stp in range(int(args['max_episode_len'])):
-            if args['render_env']:
-                env.render()
+        episode_reward = learn(actors, args, critics, env, ep, noise, replayMemory, sess, summary_ops, summary_vars,
+              writer)
+        print('|Reward: {}	| Episode: {:d}'.format(episode_reward, ep))
 
-            a = []
-            for i in range(env.n):
-                actor = actors[i]
-                a.append(actor.act(np.reshape(s[i], (-1, actor.state_dim)), noise[i]()).reshape(actor.action_dim, ))
-            print("Action: {}".format(a))
-            s2, r, done, _ = env.step(a)  # a is a list with each element being an array
-            replayMemory.add(s, a, r, done, s2)
-            s = s2
-            action_dims_done = 0
-            for i in range(env.n):
-                actor = actors[i]
-                critic = critics[i]
-                if replayMemory.size() > int(args['minibatch_size']):
 
-                    s_batch, a_batch, r_batch, d_batch, s2_batch = replayMemory.miniBatch(int(args['minibatch_size']))
-                    a = []
-                    for j in range(env.n):
-                        state_batch_j = np.asarray([x for x in s_batch[:,
-                                                               j]])  # batch processing will be much more efficient even though reshaping will have to be done
-                        a.append(actors[j].predict_target(state_batch_j))
+def learn(actors, args, critics, env, ep, noise, replayMemory, sess, summary_ops, summary_vars,
+          writer):
+    s = env.reset()
+    episode_reward = np.zeros((env.n,))
 
-                    a_temp = np.transpose(np.asarray(a), (1, 0, 2))
-                    a_for_critic = np.asarray([x.flatten() for x in a_temp])
-                    s2_batch_i = np.asarray([x for x in s2_batch[:, i]])  # Checked till this point, should be fine.
-                    targetQ = critic.predict_target(s2_batch_i, a_for_critic)  # Should  work, probably
+    for stp in range(int(args['max_episode_len'])):
+        if args['render_env']:
+            env.render()
 
-                    yi = []
-                    for k in range(int(args['minibatch_size'])):
-                        if d_batch[:, i][k]:
-                            yi.append(r_batch[:, i][k])
-                        else:
-                            yi.append(r_batch[:, i][k] + critic.gamma * targetQ[k])
-                    s_batch_i = np.asarray([x for x in s_batch[:, i]])
-                    critic.train(s_batch_i, np.asarray([x.flatten() for x in a_batch]),
-                                 np.reshape(yi, (int(args['minibatch_size']), 1)))
+        a = []
+        for i in range(env.n):
+            actor = actors[i]
+            st_ = np.reshape(s[i], (-1, actor.state_dim))
+            ac_ = actor.act(st_, noise[i]())
+            if np.math.isnan(ac_[0][0]):
+                return episode_reward
+            a.append(ac_.reshape(actor.action_dim, ))
+        print("Action: {}".format(a))
+        s2, r, done, _ = env.step(a)  # a is a list with each element being an array
+        replayMemory.add(s, a, r, done, s2)
+        s = s2
+        action_dims_done = 0
+        for i in range(env.n):
+            actor = actors[i]
+            critic = critics[i]
+            if replayMemory.size() > int(args['minibatch_size']):
 
-                    actions_pred = []
-                    for j in range(env.n):
-                        state_batch_j = np.asarray([x for x in s2_batch[:, j]])
-                        actions_pred.append(
-                            actors[j].predict(state_batch_j))  # Should work till here, roughly, probably
+                s_batch, a_batch, r_batch, d_batch, s2_batch = replayMemory.miniBatch(int(args['minibatch_size']))
+                a = []
+                for j in range(env.n):
+                    state_batch_j = np.asarray([x for x in s_batch[:,
+                                                           j]])  # batch processing will be much more efficient even though reshaping will have to be done
+                    a.append(actors[j].predict_target(state_batch_j))
 
-                    a_temp = np.transpose(np.asarray(actions_pred), (1, 0, 2))
-                    a_for_critic_pred = np.asarray([x.flatten() for x in a_temp])
-                    s_batch_i = np.asarray([x for x in s_batch[:, i]])
-                    grads = critic.action_gradients(s_batch_i, a_for_critic_pred)[:,
-                            action_dims_done:action_dims_done + actor.action_dim]
-                    actor.train(s_batch_i, grads)
-                    actor.update_target()
-                    critic.update_target()
+                a_temp = np.transpose(np.asarray(a), (1, 0, 2))
+                a_for_critic = np.asarray([x.flatten() for x in a_temp])
+                s2_batch_i = np.asarray([x for x in s2_batch[:, i]])  # Checked till this point, should be fine.
+                targetQ = critic.predict_target(s2_batch_i, a_for_critic)  # Should  work, probably
 
-                action_dims_done = action_dims_done + actor.action_dim
-            episode_reward += r
-            # print(done)
-            if np.all(done):
-                # summary_str = sess.run(summary_ops, feed_dict = {summary_vars[0]: episode_reward, summary_vars[1]: episode_av_max_q/float(stp)})
-                summary_str = sess.run(summary_ops, feed_dict={summary_vars[0]: episode_reward[0],
-                                                               summary_vars[1]: episode_reward[3]})
-                writer.add_summary(summary_str, ep)
-                writer.flush()
-                # print ('|Reward: {:d}| Episode: {:d}| Qmax: {:.4f}'.format(int(episode_reward),ep,(episode_av_max_q/float(stp))))
-                print('|Reward: {}	| Episode: {:d}'.format(episode_reward, ep))
-                break
+                yi = []
+                for k in range(int(args['minibatch_size'])):
+                    if d_batch[:, i][k]:
+                        yi.append(r_batch[:, i][k])
+                    else:
+                        yi.append(r_batch[:, i][k] + critic.gamma * targetQ[k])
+                s_batch_i = np.asarray([x for x in s_batch[:, i]])
+                critic.train(s_batch_i, np.asarray([x.flatten() for x in a_batch]),
+                             np.reshape(yi, (int(args['minibatch_size']), 1)))
 
-            if stp == int(args['max_episode_len']) - 1:
-                print('|Reward: {}	| Episode: {:d}'.format(episode_reward, ep))
+                actions_pred = []
+                for j in range(env.n):
+                    state_batch_j = np.asarray([x for x in s2_batch[:, j]])
+                    actions_pred.append(
+                        actors[j].predict(state_batch_j))  # Should work till here, roughly, probably
+
+                a_temp = np.transpose(np.asarray(actions_pred), (1, 0, 2))
+                a_for_critic_pred = np.asarray([x.flatten() for x in a_temp])
+                s_batch_i = np.asarray([x for x in s_batch[:, i]])
+                grads = critic.action_gradients(s_batch_i, a_for_critic_pred)[:,
+                        action_dims_done:action_dims_done + actor.action_dim]
+                actor.train(s_batch_i, grads)
+                actor.update_target()
+                critic.update_target()
+
+            action_dims_done = action_dims_done + actor.action_dim
+        episode_reward += r
+        # print(done)
+        if np.all(done):
+            # summary_str = sess.run(summary_ops, feed_dict = {summary_vars[0]: episode_reward, summary_vars[1]: episode_av_max_q/float(stp)})
+            summary_str = sess.run(summary_ops, feed_dict={summary_vars[0]: episode_reward[0],
+                                                           summary_vars[1]: episode_reward[3]})
+            writer.add_summary(summary_str, ep)
+            writer.flush()
+            # print ('|Reward: {:d}| Episode: {:d}| Qmax: {:.4f}'.format(int(episode_reward),ep,(episode_av_max_q/float(stp))))
+
+            # print('|Reward: {}	| Episode: {:d}'.format(episode_reward, ep))
+            # break
+
+        if np.all(done) or stp == int(args['max_episode_len']) - 1:
+            return episode_reward
+            # print('|Reward: {}	| Episode: {:d}'.format(episode_reward, ep))
 
 
 def save_models(actors, critics):
